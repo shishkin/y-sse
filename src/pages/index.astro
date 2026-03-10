@@ -1,5 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import "quill/dist/quill.core.css";
+import "quill/dist/quill.snow.css";
 ---
 
 <Layout>
@@ -15,4 +17,37 @@ import Layout from "../layouts/Layout.astro";
         border: 1px solid gray;
     }
 </style>
-<script></script>
+<script>
+    import Quill from "quill";
+    import QuillCursors from "quill-cursors";
+    import { QuillBinding } from "y-quill";
+    import * as awarenessProtocol from "y-protocols/awareness";
+    import * as Y from "yjs";
+
+    Quill.register("modules/cursors", QuillCursors);
+
+    document.querySelectorAll<HTMLElement>("div.editor").forEach(async (container) => {
+        const noteId = container.dataset.noteId!;
+        const ydoc = new Y.Doc({ guid: noteId });
+        const awareness = new awarenessProtocol.Awareness(ydoc);
+        const ytext = ydoc.getText("note");
+        const quill = new Quill(container.querySelector<HTMLElement>(".quill")!, {
+            modules: {
+                cursors: true,
+                toolbar: [
+                    [{ header: [1, 2, 3, 4, 5, 6, false] }],
+                    ["bold", "italic", "underline", "strike"],
+                    ["blockquote", "link", "code-block"],
+                    ["clean"],
+                ],
+                history: {
+                    userOnly: true,
+                },
+            },
+            bounds: container,
+            placeholder: "Start collaborating...",
+            theme: "snow",
+        });
+        new QuillBinding(ytext, quill, awareness);
+    });
+</script>

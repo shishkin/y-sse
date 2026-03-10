@@ -9,10 +9,16 @@
     "astro": "astro"
   },
   "dependencies": {
-    "astro": "^5.17.1"
+    "astro": "^5.17.1",
+    "quill": "^2.0.3",
+    "quill-cursors": "^4.0.4",
+    "yjs": "^13.6.14",
+    "y-protocols": "^1.0.6",
+    "y-quill": "1.0.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
+    "@astrojs/node": "^9.5.4",
     "@astrojs/ts-plugin": "^1.10.6",
     "typescript": "^5.9.3"
   }
