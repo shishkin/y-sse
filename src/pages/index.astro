@@ -23,6 +23,7 @@ import "quill/dist/quill.snow.css";
     import { QuillBinding } from "y-quill";
     import * as awarenessProtocol from "y-protocols/awareness";
     import * as Y from "yjs";
+    import { ClientAdapter } from "../sse/client.ts";
 
     Quill.register("modules/cursors", QuillCursors);
 
@@ -31,6 +32,13 @@ import "quill/dist/quill.snow.css";
         const ydoc = new Y.Doc({ guid: noteId });
         const awareness = new awarenessProtocol.Awareness(ydoc);
         const ytext = ydoc.getText("note");
+
+        const adapter = new ClientAdapter({
+            pathPrefix: "/sse",
+            docId: noteId,
+        });
+        adapter.run();
+
         const quill = new Quill(container.querySelector<HTMLElement>(".quill")!, {
             modules: {
                 cursors: true,
