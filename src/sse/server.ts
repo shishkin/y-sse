@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { setInterval } from "node:timers";
 import * as Y from "yjs";
+import * as awarenessProtocol from "y-protocols/awareness.js";
 import type { EventPayloadMap, EventType } from "./protocol.ts";
 import { isTypedArray } from "node:util/types";
 
@@ -50,10 +51,15 @@ export class Session extends EventEmitter<{ abort: any }> {
   update(update: Uint8Array<ArrayBufferLike>) {
     this.send("update", update);
   }
+
+  updateAwareness(update: Uint8Array<ArrayBufferLike>) {
+    this.send("awareness", update);
+  }
 }
 
 export class SharedDoc extends EventEmitter<{ closed: any }> {
   readonly sessions = new Map<string, Session>();
+  readonly awareness: awarenessProtocol.Awareness;
 
   constructor(
     readonly id: string,
@@ -62,6 +68,15 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
     super();
     doc.on("update", this.onUpdate.bind(this));
     this.once("closed", () => doc.off("update", this.onUpdate.bind(this)));
+    this.awareness = new awarenessProtocol.Awareness(doc);
+    this.awareness.on(
+      "update",
+      ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
+        const changed = added.concat(updated).concat(removed);
+        const update = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changed);
+        this.sessions.forEach((session) => session.updateAwareness(update));
+      },
+    );
   }
 
   addSession(session: Session) {
@@ -70,6 +85,20 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
       this.onDisconnect(session);
     });
     session.update(Y.encodeStateAsUpdate(this.doc));
+    session.updateAwareness(
+      awarenessProtocol.encodeAwarenessUpdate(
+        this.awareness,
+        Array.from(this.awareness.getStates().keys()),
+      ),
+    );
+  }
+
+  applyUpdate(update: Uint8Array<ArrayBufferLike>, originSession: string) {
+    Y.applyUpdate(this.doc, update, originSession);
+  }
+
+  applyAwarenessUpdate(update: Uint8Array<ArrayBufferLike>, originSession: string) {
+    awarenessProtocol.applyAwarenessUpdate(this.awareness, update, originSession);
   }
 
   private onDisconnect(session: Session) {
@@ -114,27 +143,40 @@ export class Server extends EventEmitter {
     this.persistence = persistence;
   }
 
-  private matchUrl(url: string): { session?: string; id?: string } {
-    const pattern = new URLPattern({ pathname: `${this.pathPrefix}/:id/:session?` });
+  private matchUrl(url: string): { session?: string; id?: string; awareness?: boolean } {
+    const pattern = new URLPattern({
+      pathname: `${this.pathPrefix}/:id/:session?`,
+      search: "{:param}?",
+    });
     const match = pattern.exec(url);
     return {
       id: match?.pathname.groups.id,
       session: match?.pathname.groups.session,
+      awareness: match?.search.groups.param === "awareness",
     };
   }
 
   async handle(req: Request): Promise<Response> {
-    const { id, session } = this.matchUrl(req.url);
+    const { id, session, awareness } = this.matchUrl(req.url);
 
     if (!id) {
       return new Response(null, {
         status: 404,
         statusText: "Not Found",
       });
+    } else if (req.method === "POST" && session && awareness) {
+      console.info("POST awareness update:", id, session);
+      const doc = await this.loadDocument(id);
+      doc.awareness;
+      doc.applyAwarenessUpdate(await req.bytes(), session);
+      return new Response(null, {
+        status: 204,
+        statusText: "No Content",
+      });
     } else if (req.method === "POST" && session) {
       console.info("POST document update:", id, session);
       const doc = await this.loadDocument(id);
-      Y.applyUpdate(doc.doc, await req.bytes(), session);
+      doc.applyUpdate(await req.bytes(), session);
       return new Response(null, {
         status: 204,
         statusText: "No Content",

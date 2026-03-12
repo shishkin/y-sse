@@ -21,7 +21,6 @@ import "quill/dist/quill.snow.css";
     import Quill from "quill";
     import QuillCursors from "quill-cursors";
     import { QuillBinding } from "y-quill";
-    import * as awarenessProtocol from "y-protocols/awareness";
     import * as Y from "yjs";
     import { ClientAdapter } from "../sse/client.ts";
 
@@ -30,13 +29,16 @@ import "quill/dist/quill.snow.css";
     document.querySelectorAll<HTMLElement>("div.editor").forEach(async (container) => {
         const noteId = container.dataset.noteId!;
         const ydoc = new Y.Doc({ guid: noteId });
-        const awareness = new awarenessProtocol.Awareness(ydoc);
         const ytext = ydoc.getText("note");
 
-        new ClientAdapter({
+        const adapter = new ClientAdapter({
             doc: ydoc,
             pathPrefix: "/sse",
             docId: noteId,
+            awareness: {
+                name: "user123",
+                color: "orange",
+            },
         });
 
         const quill = new Quill(container.querySelector<HTMLElement>(".quill")!, {
@@ -56,6 +58,6 @@ import "quill/dist/quill.snow.css";
             placeholder: "Start collaborating...",
             theme: "snow",
         });
-        new QuillBinding(ytext, quill, awareness);
+        new QuillBinding(ytext, quill, adapter.awareness);
     });
 </script>
