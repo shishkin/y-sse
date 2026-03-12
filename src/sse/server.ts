@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
 import { setInterval } from "node:timers";
 import * as Y from "yjs";
+import type { EventPayloadMap, EventType } from "./protocol.ts";
+import { isTypedArray } from "node:util/types";
 
 export class Session extends EventEmitter<{ abort: any }> {
   readonly id: string;
@@ -22,16 +24,21 @@ export class Session extends EventEmitter<{ abort: any }> {
     this.once("abort", () => {
       this.pingInterval.close();
     });
+    this.send("init", { session: id });
   }
 
-  private send(event: "update" | "ping", payload?: Uint8Array<ArrayBufferLike>) {
+  private send<K extends EventType>(event: K, payload?: EventPayloadMap[K]) {
     if (this.aborted) {
       return;
     }
 
     const enc = new TextEncoder();
     try {
-      const data = payload ? Buffer.from(payload).toString("base64") : "";
+      const data = payload
+        ? isTypedArray(payload)
+          ? Buffer.from(payload).toString("base64")
+          : JSON.stringify(payload)
+        : "";
       this.controller.enqueue(enc.encode(`event: ${event}\ndata: ${data}\n\n`));
     } catch (_error) {
       this.aborted = true;
@@ -48,14 +55,13 @@ export class Session extends EventEmitter<{ abort: any }> {
 export class SharedDoc extends EventEmitter<{ closed: any }> {
   readonly sessions = new Map<string, Session>();
 
-  constructor(readonly doc: Y.Doc) {
+  constructor(
+    readonly id: string,
+    readonly doc: Y.Doc,
+  ) {
     super();
     doc.on("update", this.onUpdate.bind(this));
     this.once("closed", () => doc.off("update", this.onUpdate.bind(this)));
-  }
-
-  get id() {
-    return this.doc.guid;
   }
 
   addSession(session: Session) {
@@ -63,6 +69,7 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
     session.once("abort", () => {
       this.onDisconnect(session);
     });
+    session.update(Y.encodeStateAsUpdate(this.doc));
   }
 
   private onDisconnect(session: Session) {
@@ -172,7 +179,7 @@ export class Server extends EventEmitter {
       return doc;
     }
 
-    const newDoc = new SharedDoc(new Y.Doc({ guid: id }));
+    const newDoc = new SharedDoc(id, new Y.Doc());
     this.docs.set(id, newDoc);
     await this.persistence.load(id, newDoc.doc);
     newDoc.once("closed", () => this.unloadDocument(newDoc));

@@ -33,11 +33,11 @@ import "quill/dist/quill.snow.css";
         const awareness = new awarenessProtocol.Awareness(ydoc);
         const ytext = ydoc.getText("note");
 
-        const adapter = new ClientAdapter({
+        new ClientAdapter({
+            doc: ydoc,
             pathPrefix: "/sse",
             docId: noteId,
         });
-        adapter.run();
 
         const quill = new Quill(container.querySelector<HTMLElement>(".quill")!, {
             modules: {
