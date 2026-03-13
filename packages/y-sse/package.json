@@ -1,7 +1,28 @@
 {
   "name": "y-sse",
+  "description": "HTTP Server-Sent Events (SSE) Provider for Yjs",
   "type": "module",
   "version": "0.0.1",
+  "license": "MIT",
+  "author": {
+    "name": "Sergey Shishkin",
+    "email": "sergey@shishkin.org",
+    "url": "https://shishkin.org"
+  },
+  "homepage": "https://github.com/shishkin/y-sse",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shishkin/y-sse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shishkin/y-sse/issues"
+  },
+  "keywords": [
+    "yjs",
+    "sse",
+    "http",
+    "crdt"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
@@ -11,7 +32,8 @@
   ],
   "exports": {
     ".": "./dist/index.mjs",
-    "./server": "./dist/server.mjs"
+    "./server": "./dist/server.mjs",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "check": "tsc -b --noEmit",

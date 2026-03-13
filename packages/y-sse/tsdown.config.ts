@@ -5,8 +5,5 @@ export default defineConfig({
   dts: {
     sourcemap: true,
   },
-  exports: {
-    enabled: true,
-    packageJson: false,
-  },
+  exports: true,
 });

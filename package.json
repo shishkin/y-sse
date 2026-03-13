@@ -2,6 +2,10 @@
   "name": "workspace",
   "type": "module",
   "version": "0.0.1",
+  "engines": {
+    "pnpm": ">=10",
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "pnpm --filter ./examples/astro run dev",
     "check": "pnpm --recursive --if-present run check",
