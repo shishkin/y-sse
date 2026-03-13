@@ -1,43 +1,74 @@
-# Astro Starter Kit: Minimal
+# Y-SSE
 
-```sh
-pnpm create astro@latest -- --template minimal
+> HTTP Server-Sent Events (SSE) Provider for Yjs
+
+> [!WARNING]
+> 🚧 This package is WIP and has experimental status.
+
+## 🚀 Features
+
+- [x] Yjs document sync over plain HTTP without WebSocket
+- [x] Yjs Awareness Protocol
+- [x] Works in Node.js-compatible environments with Web API Request and Response like Astro
+- [x] Detects aborted client connections
+- [x] Automatic document persistence hooks
+- [ ] Client reconnection and offline support
+- [ ] Automated simulation testing
+- [ ] Optimize throughput with batching updates
+
+## 📦 Installation
+
+```bash
+npm install y-sse
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## 📖 Usage
 
-## 🚀 Project Structure
+On the server side with Astro:
 
-Inside of your Astro project, you'll see the following folders and files:
+```typescript
+import type { APIRoute } from "astro";
+import { SseServer } from "y-sse/server";
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+const server = new SseServer({
+  pathPrefix: "/sse",
+  persistence: {
+    async load(id, ydoc) {
+      console.info("loading document:", id);
+      // do something with ydoc
+    },
+    async save(id, ydoc) {
+      console.info("saving document:", id);
+      // do something with ydoc
+    },
+  },
+});
+
+export const GET: APIRoute = (ctx) => {
+  return server.handle(ctx.request);
+};
+export const POST = GET;
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+On the client side:
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+```typescript
+import { SseProvider } from "y-sse";
 
-Any static assets, like images, can be placed in the `public/` directory.
+const ydoc = new Y.Doc();
+const provider = new SseProvider({
+  doc: ydoc,
+  pathPrefix: "/sse",
+  docId: "doc-123",
+  awareness: {
+    name: "user123",
+    color: "orange",
+  },
+});
 
-## 🧞 Commands
+// do something with ydoc and adapter.awareness
+```
 
-All commands are run from the root of the project, from a terminal:
+## 📝 License
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+MIT © [Sergey Shishkin](https://github.com/shishkin)
