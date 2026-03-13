@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { SseServer } from "../../sse/server.ts";
+import { SseServer } from "y-sse/server";
 
 const server = new SseServer({
   pathPrefix: "/sse",

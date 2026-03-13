@@ -1,4 +1,4 @@
-import type { EventPayloadClientMap, EventPayloadMap } from "./protocol.ts";
+import type { EventPayloadClientMap, EventPayloadMap } from "./protocol.js";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness.js";
 

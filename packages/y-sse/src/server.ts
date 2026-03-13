@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
 import { setInterval } from "node:timers";
-import * as Y from "yjs";
-import * as awarenessProtocol from "y-protocols/awareness.js";
-import type { EventPayloadMap, EventType } from "./protocol.ts";
 import { isTypedArray } from "node:util/types";
+import * as Y from "yjs";
+import * as awarenessProtocol from "y-protocols/awareness";
+import type { EventPayloadMap, EventType } from "./protocol.js";
 
 export class Session extends EventEmitter<{ abort: any }> {
   readonly id: string;

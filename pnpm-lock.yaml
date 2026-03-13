@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  examples/astro:
     dependencies:
       astro:
         specifier: ^5.17.1
@@ -23,6 +25,9 @@ importers:
       y-quill:
         specifier: 1.0.0
         version: 1.0.0(quill-cursors@4.0.4)(quill@2.0.3)(yjs@13.6.29)
+      y-sse:
+        specifier: 'workspace:'
+        version: link:../../packages/y-sse
       yjs:
         specifier: ^13.6.14
         version: 13.6.29
@@ -42,6 +47,24 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  packages/y-sse:
+    devDependencies:
+      '@tsconfig/node24':
+        specifier: ^24.0.4
+        version: 24.0.4
+      '@types/node':
+        specifier: ^24.11.0
+        version: 24.11.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      y-protocols:
+        specifier: ^1.0.6
+        version: 1.0.7(yjs@13.6.29)
+      yjs:
+        specifier: ^13.6.14
+        version: 13.6.29
 
 packages:
 
@@ -774,6 +797,9 @@ packages:
 
   '@shikijs/vscode-textmate@10.0.2':
     resolution: {integrity: sha512-83yeghZ2xxin3Nj8z1NMd/NCuca+gsYXswywDy5bHvwlWL8tpTQmzGeUuHd9FC3E/SBEMvzJRwWEOz5gGes9Qg==}
+
+  '@tsconfig/node24@24.0.4':
+    resolution: {integrity: sha512-2A933l5P5oCbv6qSxHs7ckKwobs8BDAe9SJ/Xr2Hy+nDlwmLE1GhFh/g/vXGRZWgxBg9nX/5piDtHR9Dkw/XuA==}
 
   '@types/debug@4.1.12':
     resolution: {integrity: sha512-vIChWdVG3LG1SMxEvI/AK+FWJthlrqlTu7fbrlywTkkaONwk/UAGaULXRlf8vkzFBLVm0zkMdCquhL5aOjhXPQ==}
@@ -2640,6 +2666,8 @@ snapshots:
       '@types/hast': 3.0.4
 
   '@shikijs/vscode-textmate@10.0.2': {}
+
+  '@tsconfig/node24@24.0.4': {}
 
   '@types/debug@4.1.12':
     dependencies:
