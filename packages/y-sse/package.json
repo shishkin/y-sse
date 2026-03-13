@@ -2,26 +2,20 @@
   "name": "y-sse",
   "type": "module",
   "version": "0.0.1",
-  "main": "src/client.ts",
-  "types": "src/client.ts",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "files": [
     "dist/*",
     "src/*"
   ],
   "exports": {
-    ".": {
-      "default": "./src/client.ts",
-      "import": "./src/client.ts",
-      "types": "./src/client.ts"
-    },
-    "./server": {
-      "default": "./src/server.ts",
-      "import": "./src/server.ts",
-      "types": "./src/server.ts"
-    }
+    ".": "./dist/index.mjs",
+    "./server": "./dist/server.mjs"
   },
   "scripts": {
-    "build": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "build": "tsdown"
   },
   "peerDependencies": {
     "y-protocols": "^1",
@@ -30,6 +24,7 @@
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",
     "@types/node": "^24.11.0",
+    "tsdown": "^0.21.0",
     "typescript": "^5.9.3",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.14"

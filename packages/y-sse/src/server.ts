@@ -47,17 +47,17 @@ export class Session extends EventEmitter<{ abort: any }> {
     }
   }
 
-  update(update: Uint8Array) {
+  update(update: Uint8Array): void {
     this.send("update", update);
   }
 
-  updateAwareness(update: Uint8Array) {
+  updateAwareness(update: Uint8Array): void {
     this.send("awareness", update);
   }
 }
 
 export class SharedDoc extends EventEmitter<{ closed: any }> {
-  readonly sessions = new Map<string, Session>();
+  readonly sessions: Map<string, Session> = new Map();
   readonly awareness: awarenessProtocol.Awareness;
 
   constructor(
@@ -78,7 +78,7 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
     );
   }
 
-  addSession(session: Session) {
+  addSession(session: Session): void {
     this.sessions.set(session.id, session);
     session.once("abort", () => {
       this.onDisconnect(session);
@@ -92,11 +92,11 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
     );
   }
 
-  applyUpdate(update: Uint8Array, originSession: string) {
+  applyUpdate(update: Uint8Array, originSession: string): void {
     Y.applyUpdate(this.doc, update, originSession);
   }
 
-  applyAwarenessUpdate(update: Uint8Array, originSession: string) {
+  applyAwarenessUpdate(update: Uint8Array, originSession: string): void {
     awarenessProtocol.applyAwarenessUpdate(this.awareness, update, originSession);
   }
 
@@ -125,7 +125,7 @@ export interface ServerOptions {
 export class SseServer extends EventEmitter {
   pathPrefix: string;
   persistence: Persistence;
-  docs = new Map<string, SharedDoc>();
+  docs: Map<string, SharedDoc> = new Map();
 
   constructor({
     pathPrefix = "/sse",

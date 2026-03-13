@@ -1,8 +1,11 @@
 {
   "extends": "@tsconfig/node24/tsconfig.json",
-  "include": ["**/*"],
+  "include": ["src/**/*"],
   "exclude": ["dist"],
   "compilerOptions": {
     "lib": ["DOM", "es2024", "ESNext.Array", "ESNext.Collection", "ESNext.Promise"],
+    "isolatedDeclarations": true,
+    "declaration": true,
+    "noEmit": true,
   },
 }

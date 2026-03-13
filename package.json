@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "pnpm --filter ./examples/astro run dev",
+    "check": "pnpm --recursive --if-present run check",
     "build": "pnpm --recursive --if-present run build"
   }
 }
