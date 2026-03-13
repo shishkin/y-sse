@@ -1,8 +1,8 @@
 export interface EventPayloadMap {
   ping: undefined;
   init: { session: string };
-  update: Uint8Array<ArrayBufferLike>;
-  awareness: Uint8Array<ArrayBufferLike>;
+  update: Uint8Array;
+  awareness: Uint8Array;
 }
 
 export type EventType = keyof EventPayloadMap;

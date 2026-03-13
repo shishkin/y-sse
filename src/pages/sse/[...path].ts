@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
-import { Server } from "../../sse/server.ts";
+import { SseServer } from "../../sse/server.ts";
 
-const server = new Server({
+const server = new SseServer({
   pathPrefix: "/sse",
   persistence: {
     async load(id) {

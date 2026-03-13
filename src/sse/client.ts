@@ -16,7 +16,7 @@ export interface ClientOptions {
   };
 }
 
-export class ClientAdapter {
+export class SseProvider {
   readonly doc: Y.Doc;
   readonly awareness: awarenessProtocol.Awareness;
   readonly docId: string;
@@ -80,7 +80,7 @@ export class ClientAdapter {
     });
   }
 
-  private async postUpdate(path: string, update: Uint8Array<ArrayBufferLike>) {
+  private async postUpdate(path: string, update: Uint8Array) {
     await fetch(path, {
       method: "POST",
       body: update as BodyInit,

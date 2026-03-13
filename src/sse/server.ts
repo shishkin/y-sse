@@ -7,7 +7,7 @@ import { isTypedArray } from "node:util/types";
 
 export class Session extends EventEmitter<{ abort: any }> {
   readonly id: string;
-  private controller: ReadableStreamDefaultController<Uint8Array<ArrayBufferLike>>;
+  private controller: ReadableStreamDefaultController<Uint8Array>;
   private aborted = false;
   private pingInterval;
 
@@ -16,7 +16,7 @@ export class Session extends EventEmitter<{ abort: any }> {
     controller,
   }: {
     id: string;
-    controller: ReadableStreamDefaultController<Uint8Array<ArrayBufferLike>>;
+    controller: ReadableStreamDefaultController<Uint8Array>;
   }) {
     super();
     this.id = id;
@@ -43,16 +43,15 @@ export class Session extends EventEmitter<{ abort: any }> {
       this.controller.enqueue(enc.encode(`event: ${event}\ndata: ${data}\n\n`));
     } catch (_error) {
       this.aborted = true;
-      console.error("stream aborted");
       this.emit("abort");
     }
   }
 
-  update(update: Uint8Array<ArrayBufferLike>) {
+  update(update: Uint8Array) {
     this.send("update", update);
   }
 
-  updateAwareness(update: Uint8Array<ArrayBufferLike>) {
+  updateAwareness(update: Uint8Array) {
     this.send("awareness", update);
   }
 }
@@ -93,11 +92,11 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
     );
   }
 
-  applyUpdate(update: Uint8Array<ArrayBufferLike>, originSession: string) {
+  applyUpdate(update: Uint8Array, originSession: string) {
     Y.applyUpdate(this.doc, update, originSession);
   }
 
-  applyAwarenessUpdate(update: Uint8Array<ArrayBufferLike>, originSession: string) {
+  applyAwarenessUpdate(update: Uint8Array, originSession: string) {
     awarenessProtocol.applyAwarenessUpdate(this.awareness, update, originSession);
   }
 
@@ -108,7 +107,7 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
     }
   }
 
-  private onUpdate(update: Uint8Array<ArrayBufferLike>) {
+  private onUpdate(update: Uint8Array) {
     this.sessions.forEach((session) => session.update(update));
   }
 }
@@ -123,7 +122,7 @@ export interface ServerOptions {
   persistence?: Persistence;
 }
 
-export class Server extends EventEmitter {
+export class SseServer extends EventEmitter {
   pathPrefix: string;
   persistence: Persistence;
   docs = new Map<string, SharedDoc>();
@@ -165,7 +164,6 @@ export class Server extends EventEmitter {
         statusText: "Not Found",
       });
     } else if (req.method === "POST" && session && awareness) {
-      console.info("POST awareness update:", id, session);
       const doc = await this.loadDocument(id);
       doc.awareness;
       doc.applyAwarenessUpdate(await req.bytes(), session);
@@ -174,7 +172,6 @@ export class Server extends EventEmitter {
         statusText: "No Content",
       });
     } else if (req.method === "POST" && session) {
-      console.info("POST document update:", id, session);
       const doc = await this.loadDocument(id);
       doc.applyUpdate(await req.bytes(), session);
       return new Response(null, {
@@ -182,7 +179,6 @@ export class Server extends EventEmitter {
         statusText: "No Content",
       });
     } else if (req.method === "GET" && session) {
-      console.info("GET document session stream:", id, session);
       const doc = await this.loadDocument(id);
       const stream = new ReadableStream({
         async start(controller) {
@@ -197,7 +193,6 @@ export class Server extends EventEmitter {
         },
       });
     } else if (req.method === "GET") {
-      console.info("GET document session:", id);
       const session = Math.random().toString(36).substring(2);
       return new Response(null, {
         status: 302,
@@ -207,7 +202,6 @@ export class Server extends EventEmitter {
         },
       });
     } else {
-      console.error("Unsupported request:", req.method, new URL(req.url).pathname);
       return new Response(null, {
         status: 405,
         statusText: "Method Not Allowed",
@@ -215,7 +209,7 @@ export class Server extends EventEmitter {
     }
   }
 
-  async loadDocument(id: string): Promise<SharedDoc> {
+  private async loadDocument(id: string): Promise<SharedDoc> {
     const doc = this.docs.get(id);
     if (doc) {
       return doc;
@@ -228,7 +222,7 @@ export class Server extends EventEmitter {
     return newDoc;
   }
 
-  async unloadDocument(doc: SharedDoc): Promise<void> {
+  private async unloadDocument(doc: SharedDoc): Promise<void> {
     await this.persistence.save(doc.id, doc.doc);
     this.docs.delete(doc.id);
   }

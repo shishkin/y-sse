@@ -22,16 +22,16 @@ import "quill/dist/quill.snow.css";
     import QuillCursors from "quill-cursors";
     import { QuillBinding } from "y-quill";
     import * as Y from "yjs";
-    import { ClientAdapter } from "../sse/client.ts";
+    import { SseProvider } from "../sse/client.ts";
 
     Quill.register("modules/cursors", QuillCursors);
 
     document.querySelectorAll<HTMLElement>("div.editor").forEach(async (container) => {
         const noteId = container.dataset.noteId!;
-        const ydoc = new Y.Doc({ guid: noteId });
+        const ydoc = new Y.Doc();
         const ytext = ydoc.getText("note");
 
-        const adapter = new ClientAdapter({
+        const adapter = new SseProvider({
             doc: ydoc,
             pathPrefix: "/sse",
             docId: noteId,
