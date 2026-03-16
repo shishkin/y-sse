@@ -112,19 +112,19 @@ export class SharedDoc extends EventEmitter<{ closed: any }> {
   }
 }
 
-export interface Persistence {
-  load(id: string, doc: Y.Doc): Promise<void>;
-  save(id: string, doc: Y.Doc): Promise<void>;
+export interface Persistence<Ctx> {
+  load(id: string, doc: Y.Doc, ctx: Ctx): Promise<void>;
+  save(id: string, doc: Y.Doc, ctx: Ctx): Promise<void>;
 }
 
-export interface ServerOptions {
+export interface ServerOptions<Ctx> {
   pathPrefix?: string;
-  persistence?: Persistence;
+  persistence?: Persistence<Ctx>;
 }
 
-export class SseServer extends EventEmitter {
+export class SseServer<Ctx = {}> extends EventEmitter {
   pathPrefix: string;
-  persistence: Persistence;
+  persistence: Persistence<Ctx>;
   docs: Map<string, SharedDoc> = new Map();
 
   constructor({
@@ -133,7 +133,7 @@ export class SseServer extends EventEmitter {
       load: async () => {},
       save: async () => {},
     },
-  }: ServerOptions = {}) {
+  }: ServerOptions<Ctx> = {}) {
     super();
     this.pathPrefix = pathPrefix
       .trim()
@@ -155,7 +155,7 @@ export class SseServer extends EventEmitter {
     };
   }
 
-  async handle(req: Request): Promise<Response> {
+  async handle(req: Request, ctx: Ctx): Promise<Response> {
     const { id, session, awareness } = this.matchUrl(req.url);
 
     if (!id) {
@@ -164,7 +164,7 @@ export class SseServer extends EventEmitter {
         statusText: "Not Found",
       });
     } else if (req.method === "POST" && session && awareness) {
-      const doc = await this.loadDocument(id);
+      const doc = await this.loadDocument(id, ctx);
       doc.awareness;
       doc.applyAwarenessUpdate(await req.bytes(), session);
       return new Response(null, {
@@ -172,14 +172,14 @@ export class SseServer extends EventEmitter {
         statusText: "No Content",
       });
     } else if (req.method === "POST" && session) {
-      const doc = await this.loadDocument(id);
+      const doc = await this.loadDocument(id, ctx);
       doc.applyUpdate(await req.bytes(), session);
       return new Response(null, {
         status: 204,
         statusText: "No Content",
       });
     } else if (req.method === "GET" && session) {
-      const doc = await this.loadDocument(id);
+      const doc = await this.loadDocument(id, ctx);
       const stream = new ReadableStream({
         async start(controller) {
           doc.addSession(new Session({ id: session, controller }));
@@ -209,7 +209,7 @@ export class SseServer extends EventEmitter {
     }
   }
 
-  private async loadDocument(id: string): Promise<SharedDoc> {
+  private async loadDocument(id: string, ctx: Ctx): Promise<SharedDoc> {
     const doc = this.docs.get(id);
     if (doc) {
       return doc;
@@ -217,13 +217,13 @@ export class SseServer extends EventEmitter {
 
     const newDoc = new SharedDoc(id, new Y.Doc());
     this.docs.set(id, newDoc);
-    await this.persistence.load(id, newDoc.doc);
-    newDoc.once("closed", () => this.unloadDocument(newDoc));
+    await this.persistence.load(id, newDoc.doc, ctx);
+    newDoc.once("closed", () => this.unloadDocument(newDoc, ctx));
     return newDoc;
   }
 
-  private async unloadDocument(doc: SharedDoc): Promise<void> {
-    await this.persistence.save(doc.id, doc.doc);
+  private async unloadDocument(doc: SharedDoc, ctx: Ctx): Promise<void> {
+    await this.persistence.save(doc.id, doc.doc, ctx);
     this.docs.delete(doc.id);
   }
 }
