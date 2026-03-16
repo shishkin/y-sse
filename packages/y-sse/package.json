@@ -2,7 +2,7 @@
   "name": "y-sse",
   "description": "HTTP Server-Sent Events (SSE) Provider for Yjs",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "license": "MIT",
   "author": {
     "name": "Sergey Shishkin",
