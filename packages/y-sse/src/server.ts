@@ -165,7 +165,6 @@ export class SseServer<Ctx = {}> extends EventEmitter {
       });
     } else if (req.method === "POST" && session && awareness) {
       const doc = await this.loadDocument(id, ctx);
-      doc.awareness;
       doc.applyAwarenessUpdate(await req.bytes(), session);
       return new Response(null, {
         status: 204,
