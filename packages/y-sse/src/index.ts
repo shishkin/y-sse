@@ -46,9 +46,14 @@ export class SseProvider {
       Y.applyUpdate(this.doc, update);
     });
     this.doc.on("update", async (update) => {
-      const { session } = await this.session;
-      const sessionPath = `${docPath}/${session}`;
-      await this.postUpdate(sessionPath, update);
+      try {
+        const { session } = await this.session;
+        const sessionPath = `${docPath}/${session}`;
+        await this.postUpdate(sessionPath, update);
+      } catch (e) {
+        // TODO: implement pending updates queue
+        console.error(e);
+      }
     });
 
     this.awareness = new awarenessProtocol.Awareness(doc);
@@ -68,11 +73,15 @@ export class SseProvider {
         updated: number[];
         removed: number[];
       }) => {
-        const { session } = await this.session;
-        const awarenessPath = `${docPath}/${session}?awareness`;
-        const changed = added.concat(updated).concat(removed);
-        const update = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changed);
-        await this.postUpdate(awarenessPath, update);
+        try {
+          const { session } = await this.session;
+          const awarenessPath = `${docPath}/${session}?awareness`;
+          const changed = added.concat(updated).concat(removed);
+          const update = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changed);
+          await this.postUpdate(awarenessPath, update);
+        } catch (_e) {
+          // ignore failed awareness updates
+        }
       },
     );
     window.addEventListener("beforeunload", () => {
