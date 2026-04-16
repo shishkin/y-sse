@@ -1,14 +1,23 @@
 import type { APIRoute, APIContext } from "astro";
 import { SseServer } from "y-sse/server";
+import { writeFile, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import * as Y from "yjs";
 
 const server = new SseServer<APIContext>({
   pathPrefix: "/sse",
   persistence: {
-    async load(id) {
+    async load(id, doc) {
       console.info("loading document:", id);
+      const path = `data/${id}`;
+      if (existsSync(path)) {
+        const data = await readFile(path);
+        Y.applyUpdate(doc, data);
+      }
     },
-    async save(id) {
+    async save(id, doc) {
       console.info("saving document:", id);
+      await writeFile(`data/${id}`, Y.encodeStateAsUpdate(doc));
     },
   },
 });
