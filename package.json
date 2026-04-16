@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "pnpm --filter ./examples/astro run dev",
     "check": "pnpm --recursive --if-present run check",
+    "test": "pnpm --recursive --if-present run test",
     "build": "pnpm --recursive --if-present run build",
     "publish": "pnpm --filter y-sse publish"
   },
