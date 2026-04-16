@@ -5,6 +5,8 @@ import { existsSync } from "node:fs";
 import * as Y from "yjs";
 
 const server = new SseServer<APIContext>({
+  // stable client ID ensures client can reconnect to a respawned server
+  serverId: 0,
   pathPrefix: "/sse",
   persistence: {
     async load(id, doc) {

@@ -120,12 +120,14 @@ export interface Persistence<Ctx> {
 export interface ServerOptions<Ctx> {
   pathPrefix?: string;
   persistence?: Persistence<Ctx>;
+  serverId?: number;
 }
 
 export class SseServer<Ctx = {}> extends EventEmitter {
-  pathPrefix: string;
-  persistence: Persistence<Ctx>;
-  docs: Map<string, SharedDoc> = new Map();
+  readonly pathPrefix: string;
+  readonly persistence: Persistence<Ctx>;
+  readonly docs: Map<string, SharedDoc> = new Map();
+  private readonly serverId: number | undefined;
 
   constructor({
     pathPrefix = "/sse",
@@ -133,6 +135,7 @@ export class SseServer<Ctx = {}> extends EventEmitter {
       load: async () => {},
       save: async () => {},
     },
+    serverId,
   }: ServerOptions<Ctx> = {}) {
     super();
     this.pathPrefix = pathPrefix
@@ -140,6 +143,7 @@ export class SseServer<Ctx = {}> extends EventEmitter {
       .replaceAll(/[\/]{2,}/g, "/")
       .replace(/\/$/, "");
     this.persistence = persistence;
+    this.serverId = serverId;
   }
 
   private matchUrl(url: string): { session?: string; id?: string; awareness?: boolean } {
@@ -214,7 +218,11 @@ export class SseServer<Ctx = {}> extends EventEmitter {
       return doc;
     }
 
-    const newDoc = new SharedDoc(id, new Y.Doc());
+    const ydoc = new Y.Doc();
+    if (this.serverId) {
+      ydoc.clientID = this.serverId;
+    }
+    const newDoc = new SharedDoc(id, ydoc);
     this.docs.set(id, newDoc);
     await this.persistence.load(id, newDoc.doc, ctx);
     newDoc.once("closed", () => this.unloadDocument(newDoc, ctx));
