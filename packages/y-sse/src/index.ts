@@ -22,6 +22,8 @@ export interface ClientOptions {
     name?: string;
     color?: string;
   };
+  minRetryDelay?: number;
+  maxRetryDelay?: number;
 }
 
 export class SseProvider extends EventTarget {
@@ -116,7 +118,12 @@ export class SseProvider extends EventTarget {
       } catch (e) {
         this.updateStatus = "error";
         console.error(e);
-        const delay = Math.min(500 * Math.pow(2, Math.max(this.updateAttempt - 1, 0)), 30_000);
+        const minDelay = this.opts.minRetryDelay ?? 500;
+        const maxDelay = this.opts.maxRetryDelay ?? 30_000;
+        const delay = Math.min(
+          minDelay * Math.pow(2, Math.max(this.updateAttempt - 1, 0)),
+          maxDelay,
+        );
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
