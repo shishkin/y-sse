@@ -22,6 +22,7 @@ const server = new SseServer<APIContext>({
       await writeFile(`data/${id}`, Y.encodeStateAsUpdate(doc));
     },
   },
+  autoSaveInterval: 1000,
 });
 
 export const GET: APIRoute = (ctx) => {

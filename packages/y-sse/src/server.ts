@@ -126,11 +126,13 @@ export interface ServerOptions<Ctx> {
   persistence?: Persistence<Ctx>;
   serverId?: number;
   pingInterval?: number;
+  autoSaveInterval?: number;
 }
 
 export class SseServer<Ctx = {}> extends EventEmitter {
   readonly docs: Map<string, SharedDoc> = new Map();
   readonly persistence: Persistence<Ctx>;
+  private autoSave: Persistence<Ctx>["save"] | undefined;
 
   constructor(private readonly opts: ServerOptions<Ctx> = {}) {
     super();
@@ -142,6 +144,12 @@ export class SseServer<Ctx = {}> extends EventEmitter {
       .trim()
       .replaceAll(/[\/]{2,}/g, "/")
       .replace(/\/$/, "");
+    if (this.opts.autoSaveInterval) {
+      this.autoSave = throttle(
+        this.persistence.save.bind(this.persistence),
+        this.opts.autoSaveInterval,
+      );
+    }
   }
 
   private matchUrl(url: string): { session?: string; id?: string; awareness?: boolean } {
@@ -225,6 +233,9 @@ export class SseServer<Ctx = {}> extends EventEmitter {
     this.docs.set(id, newDoc);
     await this.persistence.load(id, newDoc.doc, ctx);
     newDoc.once("closed", () => this.unloadDocument(newDoc, ctx));
+    if (this.autoSave) {
+      ydoc.on("update", () => this.autoSave?.(id, ydoc, ctx));
+    }
     return newDoc;
   }
 
@@ -232,4 +243,26 @@ export class SseServer<Ctx = {}> extends EventEmitter {
     await this.persistence.save(doc.id, doc.doc, ctx);
     this.docs.delete(doc.id);
   }
+}
+
+function throttle<F extends (...args: any[]) => void>(fn: F, wait: number): F {
+  let timeout: any | undefined;
+  let lastArgs: any[] | undefined;
+
+  const exec = function (this: any) {
+    if (lastArgs) {
+      fn.apply(this, lastArgs);
+      lastArgs = undefined;
+      timeout = setTimeout(exec, wait);
+    } else {
+      timeout = undefined;
+    }
+  };
+
+  return function (this: any, ...args: any[]) {
+    lastArgs = args;
+    if (!timeout) {
+      exec();
+    }
+  } as F;
 }
