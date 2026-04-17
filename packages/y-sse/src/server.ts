@@ -14,17 +14,21 @@ export class Session extends EventEmitter<{ abort: any }> {
   constructor({
     id,
     controller,
+    pingInterval,
   }: {
     id: string;
     controller: ReadableStreamDefaultController<Uint8Array>;
+    pingInterval?: number;
   }) {
     super();
     this.id = id;
     this.controller = controller;
-    this.pingInterval = setInterval(() => this.send("ping"), 1000);
-    this.once("abort", () => {
-      this.pingInterval.close();
-    });
+    if (pingInterval) {
+      this.pingInterval = setInterval(() => this.send("ping"), pingInterval);
+      this.once("abort", () => {
+        this.pingInterval?.close();
+      });
+    }
     this.send("init", { session: id });
   }
 
@@ -121,34 +125,28 @@ export interface ServerOptions<Ctx> {
   pathPrefix?: string;
   persistence?: Persistence<Ctx>;
   serverId?: number;
+  pingInterval?: number;
 }
 
 export class SseServer<Ctx = {}> extends EventEmitter {
-  readonly pathPrefix: string;
-  readonly persistence: Persistence<Ctx>;
   readonly docs: Map<string, SharedDoc> = new Map();
-  private readonly serverId: number | undefined;
+  readonly persistence: Persistence<Ctx>;
 
-  constructor({
-    pathPrefix = "/sse",
-    persistence = {
+  constructor(private readonly opts: ServerOptions<Ctx> = {}) {
+    super();
+    this.persistence = this.opts.persistence ?? {
       load: async () => {},
       save: async () => {},
-    },
-    serverId,
-  }: ServerOptions<Ctx> = {}) {
-    super();
-    this.pathPrefix = pathPrefix
+    };
+    this.opts.pathPrefix = (this.opts.pathPrefix ?? "/sse")
       .trim()
       .replaceAll(/[\/]{2,}/g, "/")
       .replace(/\/$/, "");
-    this.persistence = persistence;
-    this.serverId = serverId;
   }
 
   private matchUrl(url: string): { session?: string; id?: string; awareness?: boolean } {
     const pattern = new URLPattern({
-      pathname: `${this.pathPrefix}/:id/:session?`,
+      pathname: `${this.opts.pathPrefix}/:id/:session?`,
       search: "{:param}?",
     });
     const match = pattern.exec(url);
@@ -183,9 +181,10 @@ export class SseServer<Ctx = {}> extends EventEmitter {
       });
     } else if (req.method === "GET" && session) {
       const doc = await this.loadDocument(id, ctx);
+      const pingInterval = this.opts.pingInterval;
       const stream = new ReadableStream({
         async start(controller) {
-          doc.addSession(new Session({ id: session, controller }));
+          doc.addSession(new Session({ id: session, controller, pingInterval }));
         },
       });
       return new Response(stream, {
@@ -201,7 +200,7 @@ export class SseServer<Ctx = {}> extends EventEmitter {
         status: 302,
         statusText: "Found",
         headers: {
-          Location: `${this.pathPrefix}/${id}/${session}`,
+          Location: `${this.opts.pathPrefix}/${id}/${session}`,
         },
       });
     } else {
@@ -219,8 +218,8 @@ export class SseServer<Ctx = {}> extends EventEmitter {
     }
 
     const ydoc = new Y.Doc();
-    if (this.serverId) {
-      ydoc.clientID = this.serverId;
+    if (this.opts.serverId) {
+      ydoc.clientID = this.opts.serverId;
     }
     const newDoc = new SharedDoc(id, ydoc);
     this.docs.set(id, newDoc);
