@@ -12,7 +12,7 @@
 - [x] Works in Node.js-compatible environments with Web API Request and Response like Astro
 - [x] Detects aborted client connections
 - [x] Automatic document persistence hooks
-- [ ] Client reconnection and offline support
+- [x] Client reconnection and offline support
 - [ ] Automated simulation testing
 - [ ] Optimize throughput with batching updates
 
