@@ -1,10 +1,18 @@
-import type { EventPayloadClientMap, EventPayloadMap } from "./protocol.js";
+import {
+  EventPayloadClientMap,
+  UpdateStatusEvent,
+  type EventPayloadMap,
+  type UpdateStatus,
+} from "./protocol.js";
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness.js";
 
 declare global {
   interface EventSourceEventMap extends EventPayloadClientMap {}
 }
+
+export { UpdateStatusEvent } from "./protocol.js";
+export type { UpdateStatus, UpdateStatusDetails } from "./protocol.js";
 
 export interface ClientOptions {
   doc: Y.Doc;
@@ -16,23 +24,23 @@ export interface ClientOptions {
   };
 }
 
-export class SseProvider {
+export class SseProvider extends EventTarget {
   readonly doc: Y.Doc;
   readonly awareness: awarenessProtocol.Awareness;
-  readonly docId: string;
-  readonly pathPrefix: string;
   readonly docPath: string;
   private stream: EventSource;
   private sessionPath: Promise<string>;
   private pendingUpdate: Uint8Array | undefined;
   private updateAttempt = 0;
+  private _updateStatus: UpdateStatus = "idle";
 
-  constructor({ doc, docId, pathPrefix = "/sse", awareness = {} }: ClientOptions) {
-    this.doc = doc;
-    this.docId = docId;
-    this.pathPrefix = pathPrefix;
+  constructor(private readonly opts: ClientOptions) {
+    super();
+    this.opts.pathPrefix ??= "/sse";
+    this.opts.awareness ??= {};
+    this.doc = this.opts.doc;
 
-    this.docPath = `${this.pathPrefix}/${this.docId}`;
+    this.docPath = `${this.opts.pathPrefix}/${this.opts.docId}`;
     this.stream = new EventSource(this.docPath);
     this.sessionPath = new Promise((resolve) => {
       this.stream.addEventListener(
@@ -56,8 +64,8 @@ export class SseProvider {
       this.tryPostingPendingUpdate();
     });
 
-    this.awareness = new awarenessProtocol.Awareness(doc);
-    this.awareness.setLocalStateField("user", awareness);
+    this.awareness = new awarenessProtocol.Awareness(this.doc);
+    this.awareness.setLocalStateField("user", this.opts.awareness);
     this.stream.addEventListener("awareness", (e) => {
       const update = Uint8Array.from(atob(e.data), (c) => c.charCodeAt(0));
       awarenessProtocol.applyAwarenessUpdate(this.awareness, update, "server update");
@@ -96,17 +104,33 @@ export class SseProvider {
     }
     while (this.pendingUpdate) {
       try {
+        if (this.updateStatus === "idle") {
+          this.updateStatus = "pending";
+        }
         this.updateAttempt++;
         const path = await this.sessionPath;
         await this.postUpdate(path, this.pendingUpdate);
         this.pendingUpdate = undefined;
         this.updateAttempt = 0;
+        this.updateStatus = "idle";
       } catch (e) {
+        this.updateStatus = "error";
         console.error(e);
         const delay = Math.min(500 * Math.pow(2, Math.max(this.updateAttempt - 1, 0)), 30_000);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
+  }
+
+  private set updateStatus(s: UpdateStatus) {
+    if (s !== this._updateStatus) {
+      this._updateStatus = s;
+      this.dispatchEvent(new UpdateStatusEvent({ status: s }));
+    }
+  }
+
+  get updateStatus(): UpdateStatus {
+    return this._updateStatus;
   }
 
   private async postUpdate(path: string, update: Uint8Array) {

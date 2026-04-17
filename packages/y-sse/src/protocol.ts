@@ -12,3 +12,17 @@ export type EventPayloadClientMap = {
     ? MessageEvent<undefined>
     : MessageEvent<string>;
 };
+
+export type UpdateStatus = "idle" | "pending" | "error";
+
+export interface UpdateStatusDetails {
+  status: UpdateStatus;
+}
+
+export class UpdateStatusEvent extends CustomEvent<UpdateStatusDetails> {
+  static readonly type = "update-status" as const;
+
+  constructor(detail: UpdateStatusDetails) {
+    super(UpdateStatusEvent.type, { detail });
+  }
+}
