@@ -47,8 +47,8 @@
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",
     "@types/node": "^24.11.0",
-    "tsdown": "^0.21.0",
-    "typescript": "^5.9.3",
+    "tsdown": "^0.21.8",
+    "typescript": "^6.0.2",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.14"
   }
