@@ -31,8 +31,8 @@
     "src/*"
   ],
   "exports": {
-    ".": "./dist/index.mjs",
-    "./server": "./dist/server.mjs",
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -50,5 +50,12 @@
     "typescript": "^6.0.2",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.14"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./server": "./dist/server.mjs",
+      "./package.json": "./package.json"
+    }
   }
 }
