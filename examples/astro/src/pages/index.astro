@@ -32,13 +32,14 @@ import "quill/dist/quill.snow.css";
     document.querySelectorAll<HTMLElement>("div.editor").forEach(async (container) => {
         const noteId = container.dataset.noteId!;
         const ydoc = new Y.Doc();
-        const ytext = ydoc.getText("note");
+        const ytext = ydoc.getText("text");
 
         const adapter = new SseProvider({
             doc: ydoc,
             pathPrefix: "/sse",
             docId: noteId,
             awareness: {
+                enable: true,
                 name: "user123",
                 color: "orange",
             },

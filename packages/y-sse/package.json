@@ -37,7 +37,7 @@
   },
   "scripts": {
     "check": "tsc -b --noEmit",
-    "test": "node --test",
+    "test": "node --test --experimental-transform-types",
     "build": "tsdown"
   },
   "peerDependencies": {

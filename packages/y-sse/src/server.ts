@@ -1,120 +1,5 @@
-import { EventEmitter } from "node:events";
-import { setInterval } from "node:timers";
-import { isTypedArray } from "node:util/types";
+import { SessionEvent, SharedDoc } from "./core.js";
 import * as Y from "yjs";
-import * as awarenessProtocol from "y-protocols/awareness";
-import type { EventPayloadMap, EventType } from "./protocol.js";
-
-export class Session extends EventEmitter<{ abort: any }> {
-  readonly id: string;
-  private controller: ReadableStreamDefaultController<Uint8Array>;
-  private aborted = false;
-  private pingInterval;
-
-  constructor({
-    id,
-    controller,
-    pingInterval,
-  }: {
-    id: string;
-    controller: ReadableStreamDefaultController<Uint8Array>;
-    pingInterval?: number;
-  }) {
-    super();
-    this.id = id;
-    this.controller = controller;
-    if (pingInterval) {
-      this.pingInterval = setInterval(() => this.send("ping"), pingInterval);
-      this.once("abort", () => {
-        this.pingInterval?.close();
-      });
-    }
-    this.send("init", { session: id });
-  }
-
-  private send<K extends EventType>(event: K, payload?: EventPayloadMap[K]) {
-    if (this.aborted) {
-      return;
-    }
-
-    const enc = new TextEncoder();
-    try {
-      const data = payload
-        ? isTypedArray(payload)
-          ? Buffer.from(payload).toString("base64")
-          : JSON.stringify(payload)
-        : "";
-      this.controller.enqueue(enc.encode(`event: ${event}\ndata: ${data}\n\n`));
-    } catch (_error) {
-      this.aborted = true;
-      this.emit("abort");
-    }
-  }
-
-  update(update: Uint8Array): void {
-    this.send("update", update);
-  }
-
-  updateAwareness(update: Uint8Array): void {
-    this.send("awareness", update);
-  }
-}
-
-export class SharedDoc extends EventEmitter<{ closed: any }> {
-  readonly sessions: Map<string, Session> = new Map();
-  readonly awareness: awarenessProtocol.Awareness;
-
-  constructor(
-    readonly id: string,
-    readonly doc: Y.Doc,
-  ) {
-    super();
-    doc.on("update", this.onUpdate.bind(this));
-    this.once("closed", () => doc.off("update", this.onUpdate.bind(this)));
-    this.awareness = new awarenessProtocol.Awareness(doc);
-    this.awareness.on(
-      "update",
-      ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
-        const changed = added.concat(updated).concat(removed);
-        const update = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changed);
-        this.sessions.forEach((session) => session.updateAwareness(update));
-      },
-    );
-  }
-
-  addSession(session: Session): void {
-    this.sessions.set(session.id, session);
-    session.once("abort", () => {
-      this.onDisconnect(session);
-    });
-    session.update(Y.encodeStateAsUpdate(this.doc));
-    session.updateAwareness(
-      awarenessProtocol.encodeAwarenessUpdate(
-        this.awareness,
-        Array.from(this.awareness.getStates().keys()),
-      ),
-    );
-  }
-
-  applyUpdate(update: Uint8Array, originSession: string): void {
-    Y.applyUpdate(this.doc, update, originSession);
-  }
-
-  applyAwarenessUpdate(update: Uint8Array, originSession: string): void {
-    awarenessProtocol.applyAwarenessUpdate(this.awareness, update, originSession);
-  }
-
-  private onDisconnect(session: Session) {
-    this.sessions.delete(session.id);
-    if (!this.sessions.size) {
-      this.emit("closed");
-    }
-  }
-
-  private onUpdate(update: Uint8Array) {
-    this.sessions.forEach((session) => session.update(update));
-  }
-}
 
 export interface Persistence<Ctx> {
   load(id: string, doc: Y.Doc, ctx: Ctx): Promise<void>;
@@ -127,9 +12,10 @@ export interface ServerOptions<Ctx> {
   serverId?: number;
   pingInterval?: number;
   autoSaveInterval?: number;
+  enableAwareness?: boolean;
 }
 
-export class SseServer<Ctx = {}> extends EventEmitter {
+export class SseServer<Ctx = {}> extends EventTarget {
   readonly docs: Map<string, SharedDoc> = new Map();
   readonly persistence: Persistence<Ctx>;
   private autoSave: Persistence<Ctx>["save"] | undefined;
@@ -152,69 +38,49 @@ export class SseServer<Ctx = {}> extends EventEmitter {
     }
   }
 
-  private matchUrl(url: string): { session?: string; id?: string; awareness?: boolean } {
+  private matchUrl(url: string): {
+    id?: string;
+    session?: string;
+    event?: SessionEvent["event"];
+  } {
     const pattern = new URLPattern({
-      pathname: `${this.opts.pathPrefix}/:id/:session?`,
-      search: "{:param}?",
+      pathname: `${this.opts.pathPrefix}/:id?`,
+      search: "{:search}?",
     });
     const match = pattern.exec(url);
+    const search = new URLSearchParams(match?.search.groups.search);
     return {
       id: match?.pathname.groups.id,
-      session: match?.pathname.groups.session,
-      awareness: match?.search.groups.param === "awareness",
+      session: search.get("session") ?? undefined,
+      event: (search.get("event") as any) ?? undefined,
     };
   }
 
   async handle(req: Request, ctx: Ctx): Promise<Response> {
-    const { id, session, awareness } = this.matchUrl(req.url);
+    const { id, session, event } = this.matchUrl(req.url);
 
-    if (!id) {
-      return new Response(null, {
-        status: 404,
-        statusText: "Not Found",
-      });
-    } else if (req.method === "POST" && session && awareness) {
+    if (req.method === "POST" && id && session && event) {
       const doc = await this.loadDocument(id, ctx);
-      doc.applyAwarenessUpdate(await req.bytes(), session);
+      const payload =
+        event === "update" || event === "awareness"
+          ? await req.bytes()
+          : event === "init"
+            ? await req.json()
+            : undefined;
+      doc.apply({ event, payload }, session);
       return new Response(null, {
         status: 204,
         statusText: "No Content",
       });
-    } else if (req.method === "POST" && session) {
+    } else if (req.method === "GET" && id && !session && !event) {
       const doc = await this.loadDocument(id, ctx);
-      doc.applyUpdate(await req.bytes(), session);
-      return new Response(null, {
-        status: 204,
-        statusText: "No Content",
-      });
-    } else if (req.method === "GET" && session) {
-      const doc = await this.loadDocument(id, ctx);
-      const pingInterval = this.opts.pingInterval;
-      const stream = new ReadableStream({
-        async start(controller) {
-          doc.addSession(new Session({ id: session, controller, pingInterval }));
-        },
-      });
-      return new Response(stream, {
-        headers: {
-          Connection: "keep-alive",
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache",
-        },
-      });
-    } else if (req.method === "GET") {
-      const session = Math.random().toString(36).substring(2);
-      return new Response(null, {
-        status: 302,
-        statusText: "Found",
-        headers: {
-          Location: `${this.opts.pathPrefix}/${id}/${session}`,
-        },
-      });
+      const s = doc.newSession();
+      return eventsResponse(s.getEvents({ signal: req.signal }));
     } else {
+      console.warn("bad request:", req.method, req.url);
       return new Response(null, {
-        status: 405,
-        statusText: "Method Not Allowed",
+        status: 400,
+        statusText: "Bad Request",
       });
     }
   }
@@ -229,10 +95,13 @@ export class SseServer<Ctx = {}> extends EventEmitter {
     if (this.opts.serverId) {
       ydoc.clientID = this.opts.serverId;
     }
-    const newDoc = new SharedDoc(id, ydoc);
+    const newDoc = new SharedDoc(id, ydoc, {
+      enableAwareness: this.opts.enableAwareness,
+      pingInterval: this.opts.pingInterval,
+    });
     this.docs.set(id, newDoc);
     await this.persistence.load(id, newDoc.doc, ctx);
-    newDoc.once("closed", () => this.unloadDocument(newDoc, ctx));
+    newDoc.addEventListener("closed", () => this.unloadDocument(newDoc, ctx), { once: true });
     if (this.autoSave) {
       ydoc.on("update", () => this.autoSave?.(id, ydoc, ctx));
     }
@@ -240,9 +109,48 @@ export class SseServer<Ctx = {}> extends EventEmitter {
   }
 
   private async unloadDocument(doc: SharedDoc, ctx: Ctx): Promise<void> {
+    console.debug("unloading document:", doc.id);
     await this.persistence.save(doc.id, doc.doc, ctx);
     this.docs.delete(doc.id);
   }
+}
+
+function eventsResponse(events: ReadableStream<SessionEvent>): Response {
+  const abort = new AbortController();
+  const encode = (e: SessionEvent) => {
+    const data =
+      "payload" in e
+        ? ArrayBuffer.isView(e.payload)
+          ? Buffer.from(e.payload).toString("base64")
+          : JSON.stringify(e.payload)
+        : "";
+    const encoder = new TextEncoder();
+    return encoder.encode(`event: ${e.event}\ndata: ${data}\n\n`);
+  };
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        for await (const e of events) {
+          if (abort.signal.aborted) {
+            break;
+          }
+          const encoded = encode(e);
+          controller.enqueue(encoded);
+        }
+        controller.close();
+      },
+      cancel() {
+        abort.abort();
+      },
+    }),
+    {
+      headers: {
+        Connection: "keep-alive",
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    },
+  );
 }
 
 function throttle<F extends (...args: any[]) => void>(fn: F, wait: number): F {

@@ -23,6 +23,8 @@ const server = new SseServer<APIContext>({
     },
   },
   autoSaveInterval: 1000,
+  enableAwareness: true,
+  pingInterval: 1000,
 });
 
 export const GET: APIRoute = (ctx) => {

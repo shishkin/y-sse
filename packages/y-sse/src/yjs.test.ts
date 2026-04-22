@@ -52,4 +52,30 @@ describe("Yjs doc sync", () => {
 
     assert.strictEqual(clientText.toString(), "initial\nclient line\n");
   });
+
+  // manual test
+  it.skip("failing sync", () => {
+    const snapshot1 = Y.encodeStateAsUpdate(serverDoc);
+    Y.applyUpdate(clientDoc, snapshot1);
+    assert.strictEqual(clientText.toString(), "initial\n");
+
+    let buffer: Uint8Array[] = [];
+    clientDoc.on("update", (update) => buffer.push(update));
+    for (let i = 0; i < 10_000; i++) {
+      const word = Array.from({ length: 3 }, () =>
+        String.fromCharCode(97 + Math.random() * 26),
+      ).join("");
+      clientText.insert(clientText.length, word);
+      if (buffer.length === 5) {
+        while (buffer.length) {
+          const update = buffer.pop()!;
+          Y.applyUpdate(serverDoc, update, "client");
+        }
+        assert.strictEqual(clientText.toString(), serverText.toString());
+      }
+    }
+
+    console.debug(serverText.toString());
+    assert.strictEqual(clientText.toString(), serverText.toString());
+  });
 });
