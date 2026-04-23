@@ -1,14 +1,14 @@
 import assert from "node:assert";
 import { beforeEach, describe, it } from "node:test";
 import * as Y from "yjs";
-import { Session, SharedDoc } from "./core.ts";
-import { bufferUpdates } from "./client.ts";
+import { Session } from "./session.ts";
+import { SessionPool } from "./pool.ts";
+import { bufferUpdates } from "./buffer.ts";
 
 describe("Yjs doc sync", () => {
   let serverDoc: Y.Doc;
-  let serverId: number;
   let serverText: Y.Text;
-  let sharedDoc: SharedDoc;
+  let sharedDoc: SessionPool;
   let serverSession: Session;
   let clientDoc: Y.Doc;
   let clientText: Y.Text;
@@ -16,10 +16,9 @@ describe("Yjs doc sync", () => {
 
   beforeEach(() => {
     serverDoc = new Y.Doc();
-    serverId = serverDoc.clientID;
     serverText = serverDoc.getText("text");
     serverText.insert(0, "initial\n");
-    sharedDoc = new SharedDoc("doc-1", serverDoc, { enableAwareness: false });
+    sharedDoc = new SessionPool("doc-1", serverDoc, { enableAwareness: false });
     clientDoc = new Y.Doc();
     clientText = clientDoc.getText("text");
     serverSession = sharedDoc.newSession();

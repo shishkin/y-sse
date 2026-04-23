@@ -1,11 +1,6 @@
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
-
-export type SessionEvent =
-  | { event: "init"; payload: { session: string } }
-  | { event: "ping" }
-  | { event: "update"; payload: Uint8Array }
-  | { event: "awareness"; payload: Uint8Array };
+import type { SessionEvent } from "./events.ts";
 
 export class Session {
   readonly id: string;
@@ -121,69 +116,9 @@ export class Session {
           self.awareness.on("update", onAwareness);
         }
       },
-      cancel(reason) {
+      cancel() {
         self.close();
       },
     });
-  }
-}
-
-export class SharedDoc extends EventTarget {
-  readonly sessions: Map<string, Session> = new Map();
-  readonly awareness: awarenessProtocol.Awareness | undefined;
-
-  constructor(
-    readonly id: string,
-    readonly doc: Y.Doc,
-    private readonly opts: { enableAwareness?: boolean; pingInterval?: number } = {},
-  ) {
-    super();
-    opts.enableAwareness ??= true;
-    if (opts.enableAwareness) {
-      this.awareness = new awarenessProtocol.Awareness(doc);
-    }
-  }
-
-  newSession(): Session {
-    const session = new Session({
-      id: Math.random().toString(36).substring(2),
-      doc: this.doc,
-      awareness: this.awareness,
-      pingInterval: this.opts.pingInterval,
-      mode: "server",
-    });
-    this.sessions.set(session.id, session);
-    console.debug("session connected", session.id, this.sessions.keys().toArray());
-    session.abortSignal.addEventListener("abort", () => this.onSessionClosed(session), {
-      once: true,
-    });
-    return session;
-  }
-
-  getSession(id: string): Session | undefined {
-    return this.sessions.get(id);
-  }
-
-  private onSessionClosed(session: Session): void {
-    this.sessions.delete(session.id);
-    if (!this.sessions.size) {
-      this.dispatchEvent(new CustomEvent("closed"));
-    }
-  }
-
-  apply(e: SessionEvent, originSession: string): void {
-    switch (e.event) {
-      case "update":
-        Y.applyUpdate(this.doc, e.payload, originSession);
-        console.debug("server text:", this.doc.getText("text").toString());
-        break;
-      case "awareness":
-        if (this.awareness) {
-          awarenessProtocol.applyAwarenessUpdate(this.awareness, e.payload, originSession);
-        }
-        break;
-      default:
-      // ignore
-    }
   }
 }

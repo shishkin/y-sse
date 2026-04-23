@@ -1,5 +1,8 @@
-import { SessionEvent, SharedDoc } from "./core.js";
 import * as Y from "yjs";
+import type { SessionEvent } from "./events.ts";
+import { SessionPool } from "./pool.ts";
+import { responseFromEvents } from "./sse.ts";
+import { throttle } from "./utils.ts";
 
 export interface Persistence<Ctx> {
   load(id: string, doc: Y.Doc, ctx: Ctx): Promise<void>;
@@ -16,7 +19,7 @@ export interface ServerOptions<Ctx> {
 }
 
 export class SseServer<Ctx = {}> extends EventTarget {
-  readonly docs: Map<string, SharedDoc> = new Map();
+  readonly docs: Map<string, SessionPool> = new Map();
   readonly persistence: Persistence<Ctx>;
   private autoSave: Persistence<Ctx>["save"] | undefined;
 
@@ -75,7 +78,7 @@ export class SseServer<Ctx = {}> extends EventTarget {
     } else if (req.method === "GET" && id && !session && !event) {
       const doc = await this.loadDocument(id, ctx);
       const s = doc.newSession();
-      return eventsResponse(s.getEvents({ signal: req.signal }));
+      return responseFromEvents(s.getEvents({ signal: req.signal }));
     } else {
       console.warn("bad request:", req.method, req.url);
       return new Response(null, {
@@ -85,7 +88,7 @@ export class SseServer<Ctx = {}> extends EventTarget {
     }
   }
 
-  private async loadDocument(id: string, ctx: Ctx): Promise<SharedDoc> {
+  private async loadDocument(id: string, ctx: Ctx): Promise<SessionPool> {
     const doc = this.docs.get(id);
     if (doc) {
       return doc;
@@ -95,82 +98,21 @@ export class SseServer<Ctx = {}> extends EventTarget {
     if (this.opts.serverId) {
       ydoc.clientID = this.opts.serverId;
     }
-    const newDoc = new SharedDoc(id, ydoc, {
+    const pool = new SessionPool(id, ydoc, {
       enableAwareness: this.opts.enableAwareness,
       pingInterval: this.opts.pingInterval,
     });
-    this.docs.set(id, newDoc);
-    await this.persistence.load(id, newDoc.doc, ctx);
-    newDoc.addEventListener("closed", () => this.unloadDocument(newDoc, ctx), { once: true });
+    this.docs.set(id, pool);
+    await this.persistence.load(id, pool.doc, ctx);
+    pool.addEventListener("closed", () => this.unloadDocument(pool, ctx), { once: true });
     if (this.autoSave) {
       ydoc.on("update", () => this.autoSave?.(id, ydoc, ctx));
     }
-    return newDoc;
+    return pool;
   }
 
-  private async unloadDocument(doc: SharedDoc, ctx: Ctx): Promise<void> {
-    console.debug("unloading document:", doc.id);
-    await this.persistence.save(doc.id, doc.doc, ctx);
-    this.docs.delete(doc.id);
+  private async unloadDocument(pool: SessionPool, ctx: Ctx): Promise<void> {
+    await this.persistence.save(pool.id, pool.doc, ctx);
+    this.docs.delete(pool.id);
   }
-}
-
-function eventsResponse(events: ReadableStream<SessionEvent>): Response {
-  const abort = new AbortController();
-  const encode = (e: SessionEvent) => {
-    const data =
-      "payload" in e
-        ? ArrayBuffer.isView(e.payload)
-          ? Buffer.from(e.payload).toString("base64")
-          : JSON.stringify(e.payload)
-        : "";
-    const encoder = new TextEncoder();
-    return encoder.encode(`event: ${e.event}\ndata: ${data}\n\n`);
-  };
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        for await (const e of events) {
-          if (abort.signal.aborted) {
-            break;
-          }
-          const encoded = encode(e);
-          controller.enqueue(encoded);
-        }
-        controller.close();
-      },
-      cancel() {
-        abort.abort();
-      },
-    }),
-    {
-      headers: {
-        Connection: "keep-alive",
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache",
-      },
-    },
-  );
-}
-
-function throttle<F extends (...args: any[]) => void>(fn: F, wait: number): F {
-  let timeout: any | undefined;
-  let lastArgs: any[] | undefined;
-
-  const exec = function (this: any) {
-    if (lastArgs) {
-      fn.apply(this, lastArgs);
-      lastArgs = undefined;
-      timeout = setTimeout(exec, wait);
-    } else {
-      timeout = undefined;
-    }
-  };
-
-  return function (this: any, ...args: any[]) {
-    lastArgs = args;
-    if (!timeout) {
-      exec();
-    }
-  } as F;
 }
