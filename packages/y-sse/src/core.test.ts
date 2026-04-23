@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { beforeEach, describe, it } from "node:test";
 import * as Y from "yjs";
 import { Session, SharedDoc } from "./core.ts";
+import { bufferUpdates } from "./client.ts";
 
 describe("Yjs doc sync", () => {
   let serverDoc: Y.Doc;
@@ -44,7 +45,9 @@ describe("Yjs doc sync", () => {
   }
 
   async function handleClientEvents() {
-    for await (const e of clientSession.getEvents()) {
+    for await (const e of clientSession
+      .getEvents()
+      .pipeThrough(bufferUpdates({ maxDelay: 1, maxCount: 1000 }))) {
       switch (e.event) {
         case "update":
           sharedDoc.apply(e, clientSession.id);
@@ -59,7 +62,7 @@ describe("Yjs doc sync", () => {
   }
 
   // manual test
-  it.skip("failing sync", async () => {
+  it.skip("sync load test", async () => {
     assert.strictEqual(clientText.toString(), "initial\n");
 
     for (let i = 0; i < 10_000; i++) {
@@ -67,11 +70,8 @@ describe("Yjs doc sync", () => {
         String.fromCharCode(97 + Math.random() * 26),
       ).join("");
       clientText.insert(clientText.length, word);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      assert.strictEqual(clientText.toString(), serverText.toString());
     }
-
-    console.debug(serverText.toString());
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     assert.strictEqual(clientText.toString(), serverText.toString());
   });
 });

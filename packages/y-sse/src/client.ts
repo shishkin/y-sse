@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import * as awarenessProtocol from "y-protocols/awareness.js";
-import { Session, SessionEvent } from "./core.js";
+import { Session, type SessionEvent } from "./core.ts";
 
 export type UpdateStatus = "idle" | "pending" | "error";
 
@@ -29,6 +29,7 @@ export interface ClientOptions {
   maxRetryDelay?: number;
   maxRetries?: number;
   requestTimeout?: number;
+  updateBufferDelay?: number;
 }
 
 export class SseProvider extends EventTarget {
@@ -88,7 +89,7 @@ export class SseProvider extends EventTarget {
                 },
               }),
             });
-            session.getEvents().pipeTo(sink);
+            session.getEvents().pipeThrough(bufferUpdates()).pipeTo(sink);
             session.push(e);
             break;
           default:
@@ -148,6 +149,45 @@ export function sseSource({
     cancel() {
       stream.close();
     },
+  });
+}
+
+export function bufferUpdates({
+  maxDelay: maxDelay = 1000,
+  maxCount,
+}: { maxDelay?: number; maxCount?: number } = {}): TransformStream<SessionEvent, SessionEvent> {
+  let ctrl: TransformStreamDefaultController<SessionEvent>;
+  let updates: Uint8Array[] = [];
+  let timeoutHandle: any;
+  const flush = () => {
+    clearTimeout(timeoutHandle);
+    timeoutHandle = undefined;
+    if (!updates.length) {
+      return;
+    }
+    const payload = Y.mergeUpdates(updates);
+    ctrl.enqueue({ event: "update", payload });
+    updates = [];
+  };
+  return new TransformStream({
+    start(controller) {
+      ctrl = controller;
+    },
+    transform(e) {
+      if (e.event === "update") {
+        updates.push(e.payload);
+        if (maxCount && updates.length >= maxCount) {
+          flush();
+        } else if (!timeoutHandle) {
+          timeoutHandle = setTimeout(flush, maxDelay);
+        }
+      } else {
+        // other events flush updates
+        flush();
+        ctrl.enqueue(e);
+      }
+    },
+    flush,
   });
 }
 
