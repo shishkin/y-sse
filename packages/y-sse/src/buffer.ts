@@ -18,24 +18,27 @@ export function bufferUpdates({
     ctrl.enqueue({ event: "update", payload });
     updates = [];
   };
-  return new TransformStream({
-    start(controller) {
-      ctrl = controller;
-    },
-    transform(e) {
-      if (e.event === "update") {
-        updates.push(e.payload);
-        if (maxCount && updates.length >= maxCount) {
+  return new TransformStream(
+    {
+      start(controller) {
+        ctrl = controller;
+      },
+      transform(e) {
+        if (e.event === "update") {
+          updates.push(e.payload);
+          if (maxCount && updates.length >= maxCount) {
+            flush();
+          } else if (!timeoutHandle) {
+            timeoutHandle = setTimeout(flush, maxDelay);
+          }
+        } else {
+          // other events flush updates
           flush();
-        } else if (!timeoutHandle) {
-          timeoutHandle = setTimeout(flush, maxDelay);
+          ctrl.enqueue(e);
         }
-      } else {
-        // other events flush updates
-        flush();
-        ctrl.enqueue(e);
-      }
+      },
+      flush,
     },
-    flush,
-  });
+    new CountQueuingStrategy({ highWaterMark: Infinity }),
+  );
 }

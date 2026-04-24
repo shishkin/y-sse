@@ -1,5 +1,5 @@
 import type { SessionEvent, UpdateStatus } from "./events.ts";
-import { fromBase64 } from "./utils.ts";
+import { fromBase64, RetryOptions, retryWithBackoff } from "./utils.ts";
 
 export function responseFromEvents(events: ReadableStream<SessionEvent>): Response {
   const abort = new AbortController();
@@ -45,32 +45,79 @@ type InitPayload = Extract<SessionEvent, { event: "init" }>["payload"];
 export function sseSource({
   docId,
   pathPrefix,
+  retryOptions,
+  statusStream,
 }: {
   docId: string;
   pathPrefix: string;
+  retryOptions?: RetryOptions;
+  statusStream?: WritableStream<UpdateStatus>;
 }): ReadableStream<SessionEvent> {
-  const docPath = `${pathPrefix}/${docId}`;
-  const stream = new EventSource(docPath);
-  return new ReadableStream({
-    start(controller) {
-      stream.addEventListener("init", (e) => {
+  const abort = new AbortController();
+  const signal = retryOptions?.signal
+    ? AbortSignal.any([retryOptions.signal, abort.signal])
+    : abort.signal;
+  const statusWriter = statusStream?.getWriter();
+  let ctrl: ReadableStreamDefaultController<SessionEvent>;
+  let source: EventSource | undefined;
+  const connectSource = () =>
+    new Promise<EventSource>((resolve, reject) => {
+      let connected = false;
+      const docPath = `${pathPrefix}/${docId}`;
+      statusWriter?.write("pending");
+      const es = new EventSource(docPath);
+      es.addEventListener("init", (e) => {
         const payload = JSON.parse(e.data) as InitPayload;
-        controller.enqueue({ event: "init", payload });
+        ctrl.enqueue({ event: "init", payload });
       });
-      stream.addEventListener("update", (e) => {
+      es.addEventListener("update", (e) => {
         const payload = fromBase64(e.data);
-        controller.enqueue({ event: "update", payload });
+        ctrl.enqueue({ event: "update", payload });
       });
-      stream.addEventListener("awareness", (e) => {
+      es.addEventListener("awareness", (e) => {
         const payload = fromBase64(e.data);
-        controller.enqueue({ event: "awareness", payload });
+        ctrl.enqueue({ event: "awareness", payload });
       });
-      stream.onerror = (e) => {
-        controller.error(e);
-      };
+      es.addEventListener("open", () => {
+        connected = true;
+        statusWriter?.write("idle");
+        resolve(es);
+      });
+      es.addEventListener("error", async () => {
+        statusWriter?.write("error");
+        if (!connected) {
+          // reject the promise is not yet resolved:
+          reject(new Error("Failed to connect to the event source"));
+        } else {
+          // when an already established connection breaks, try to reconnect:
+          await retryWithBackoff(
+            async () => {
+              source = await connectSource();
+            },
+            {
+              ...retryOptions,
+              signal,
+            },
+          );
+        }
+      });
+    });
+  return new ReadableStream({
+    async start(controller) {
+      ctrl = controller;
+      await retryWithBackoff(
+        async () => {
+          source = await connectSource();
+        },
+        {
+          ...retryOptions,
+          signal,
+        },
+      );
     },
-    cancel() {
-      stream.close();
+    cancel(reason) {
+      abort.abort(reason);
+      source?.close();
     },
   });
 }
@@ -80,26 +127,21 @@ export function sseSink({
   sessionId,
   pathPrefix,
   statusStream,
-  minRetryDelay = 500,
-  maxRetryDelay = 30_000,
-  maxRetries = 20,
-  requestTimeout = 3_000,
+  requestTimeout,
+  retryOptions,
 }: {
   docId: string;
   sessionId: string;
   pathPrefix: string;
   statusStream?: WritableStream<UpdateStatus>;
-  minRetryDelay?: number;
-  maxRetryDelay?: number;
-  maxRetries?: number;
   requestTimeout?: number;
+  retryOptions?: RetryOptions;
 }): WritableStream<SessionEvent> {
   const statusWriter = statusStream?.getWriter();
   statusWriter?.write("idle");
   return new WritableStream(
     {
       async write(e, controller) {
-        let updateAttempt = 0;
         statusWriter?.write("pending");
         const params = new URLSearchParams({
           session: sessionId,
@@ -112,38 +154,34 @@ export function sseSink({
               ? (e.payload as BodyInit)
               : JSON.stringify(e.payload)
             : null;
-        while (!controller.signal.aborted) {
-          updateAttempt++;
-          try {
-            await fetch(path, {
-              method: "POST",
-              body,
-              headers: {
-                ...(body
-                  ? ArrayBuffer.isView(body)
-                    ? { "Content-Type": "application/octet-stream" }
-                    : { "Content-Type": "application/json" }
-                  : {}),
-              },
-              signal: AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout)]),
-            });
-            statusWriter?.write("idle");
-            break;
-          } catch (err) {
-            statusWriter?.write("error");
-            if (controller.signal.aborted) {
-              break;
-            }
-            if (updateAttempt >= maxRetries) {
-              controller.error(err);
-              break;
-            }
-            const delay = Math.min(
-              minRetryDelay * Math.pow(2, Math.max(updateAttempt - 1, 0)),
-              maxRetryDelay,
-            );
-            await new Promise((resolve) => setTimeout(resolve, delay));
-          }
+        try {
+          await retryWithBackoff(
+            async () => {
+              await fetch(path, {
+                method: "POST",
+                body,
+                headers: {
+                  ...(body
+                    ? ArrayBuffer.isView(body)
+                      ? { "Content-Type": "application/octet-stream" }
+                      : { "Content-Type": "application/json" }
+                    : {}),
+                },
+                signal: requestTimeout
+                  ? AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout)])
+                  : controller.signal,
+              });
+            },
+            {
+              ...retryOptions,
+              signal: controller.signal,
+              onError: () => statusWriter?.write("error"),
+            },
+          );
+          statusWriter?.write("idle");
+        } catch (err) {
+          statusWriter?.write("error");
+          controller.error(err);
         }
       },
     },

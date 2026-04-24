@@ -35,3 +35,54 @@ export function throttle<F extends (...args: any[]) => void>(fn: F, wait: number
     }
   } as F;
 }
+
+export interface RetryOptions {
+  minRetryDelay?: number;
+  maxRetryDelay?: number;
+  maxRetries?: number;
+  signal?: AbortSignal;
+  onError?: (err: unknown) => void;
+}
+
+export async function retryWithBackoff<T = void, F extends () => PromiseLike<T> = () => Promise<T>>(
+  fn: F,
+  { minRetryDelay = 0, maxRetryDelay = Infinity, maxRetries, signal, onError }: RetryOptions,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    if (signal?.aborted) {
+      throw signal?.reason ?? new Error("Retrying aborted");
+    }
+    try {
+      return await fn();
+    } catch (err) {
+      onError?.(err);
+      if (maxRetries && attempt > maxRetries) {
+        throw err;
+      }
+      if (!signal?.aborted) {
+        const delay = Math.min(
+          minRetryDelay * Math.pow(2, Math.max(attempt - 1, 0)),
+          maxRetryDelay,
+        );
+        await wait(delay, { signal });
+        attempt++;
+      }
+    }
+  }
+}
+
+export function wait(delay: number, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const handleAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("Signal aborted"));
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, delay);
+  });
+}

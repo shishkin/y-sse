@@ -4,6 +4,7 @@ import { UpdateStatusEvent, type UpdateStatus } from "./events.ts";
 import { Session } from "./session.ts";
 import { sseSink, sseSource } from "./sse.ts";
 import { bufferUpdates } from "./buffer.ts";
+import type { RetryOptions } from "./utils.ts";
 
 export interface ClientOptions {
   doc: Y.Doc;
@@ -14,9 +15,7 @@ export interface ClientOptions {
     name?: string;
     color?: string;
   };
-  minRetryDelay?: number;
-  maxRetryDelay?: number;
-  maxRetries?: number;
+  retryOptions?: RetryOptions;
   requestTimeout?: number;
   updateBufferDelay?: number;
 }
@@ -25,21 +24,24 @@ export class SseProvider extends EventTarget {
   readonly doc: Y.Doc;
   readonly awareness: awarenessProtocol.Awareness | undefined;
   private _updateStatus: UpdateStatus = "idle";
-  private readonly opts;
+  private readonly docId;
+  private readonly pathPrefix;
+  private readonly requestTimeout;
+  private readonly updateBufferDelay;
+  private readonly retryOptions;
 
   constructor({ doc, ...opts }: ClientOptions) {
     super();
     this.doc = doc;
-    this.opts = {
-      ...opts,
-      pathPrefix: opts.pathPrefix ?? "/sse",
-      awareness: {
-        ...opts.awareness,
-        enable: opts.awareness?.enable ?? true,
-      },
-    };
+    this.docId = opts.docId;
+    this.pathPrefix = opts.pathPrefix ?? "/sse";
+    this.requestTimeout = opts.requestTimeout ?? 3_000;
+    this.updateBufferDelay = opts.updateBufferDelay ?? 1_000;
+    this.retryOptions = opts.retryOptions ?? {};
+    this.retryOptions.minRetryDelay ??= 500;
+    this.retryOptions.maxRetryDelay ??= 30_000;
 
-    const { enable: enableAwareness, ...awarenessOpts } = this.opts.awareness;
+    const { enable: enableAwareness = true, ...awarenessOpts } = opts.awareness ?? {};
     if (enableAwareness) {
       this.awareness = new awarenessProtocol.Awareness(this.doc);
       this.awareness.setLocalStateField("user", awarenessOpts);
@@ -56,7 +58,16 @@ export class SseProvider extends EventTarget {
   }
 
   private async start() {
-    const source = sseSource({ docId: this.opts.docId, pathPrefix: this.opts.pathPrefix });
+    const source = sseSource({
+      docId: this.docId,
+      pathPrefix: this.pathPrefix,
+      retryOptions: this.retryOptions,
+      statusStream: new WritableStream({
+        write(status) {
+          self.updateStatus = status;
+        },
+      }),
+    });
     const self = this;
     let session: Session | undefined;
     try {
@@ -70,17 +81,20 @@ export class SseProvider extends EventTarget {
               id: e.payload.session,
             });
             const sink = sseSink({
+              docId: this.docId,
+              pathPrefix: this.pathPrefix,
               sessionId: e.payload.session,
-              ...this.opts,
+              retryOptions: this.retryOptions,
               statusStream: new WritableStream({
                 write(status) {
                   self.updateStatus = status;
                 },
               }),
+              requestTimeout: this.requestTimeout,
             });
             session
               .getEvents()
-              .pipeThrough(bufferUpdates({ maxDelay: this.opts.updateBufferDelay }))
+              .pipeThrough(bufferUpdates({ maxDelay: this.updateBufferDelay }))
               .pipeTo(sink);
             session.push(e);
             break;
@@ -92,7 +106,8 @@ export class SseProvider extends EventTarget {
     } catch (e) {
       // restart the session when it breaks:
       session?.close();
-      await this.start();
+      // this should not happen as source should indefinitely retry connections
+      console.error("SSE source failed:", e);
     }
   }
 
