@@ -1,7 +1,7 @@
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
 import { Session } from "./session.ts";
-import type { SessionEvent } from "./events.ts";
+import type { ClientEvent } from "./events.ts";
 
 export class SessionPool extends EventTarget {
   readonly sessions: Map<string, Session> = new Map();
@@ -45,18 +45,19 @@ export class SessionPool extends EventTarget {
     }
   }
 
-  apply(e: SessionEvent, originSession: string): void {
+  apply(e: ClientEvent, originSession: string): void {
     switch (e.event) {
-      case "update":
-        Y.applyUpdate(this.doc, e.payload, originSession);
+      case "snapshot":
+        Y.applyUpdate(this.doc, e.snapshot, originSession);
         break;
-      case "awareness":
-        if (this.awareness) {
-          awarenessProtocol.applyAwarenessUpdate(this.awareness, e.payload, originSession);
+      case "update":
+        if (e.update) {
+          Y.applyUpdate(this.doc, e.update, originSession);
+        }
+        if (this.awareness && e.awareness) {
+          awarenessProtocol.applyAwarenessUpdate(this.awareness, e.awareness, originSession);
         }
         break;
-      default:
-      // ignore
     }
   }
 }

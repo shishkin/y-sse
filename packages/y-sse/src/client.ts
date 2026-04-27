@@ -72,36 +72,28 @@ export class SseProvider extends EventTarget {
     let session: Session | undefined;
     try {
       for await (const e of source) {
-        switch (e.event) {
-          case "init":
-            session?.close();
-            session = new Session({
-              doc: this.doc,
-              awareness: this.awareness,
-              id: e.payload.session,
-            });
-            const sink = sseSink({
-              docId: this.docId,
-              pathPrefix: this.pathPrefix,
-              sessionId: e.payload.session,
-              retryOptions: this.retryOptions,
-              statusStream: new WritableStream({
-                write(status) {
-                  self.updateStatus = status;
-                },
-              }),
-              requestTimeout: this.requestTimeout,
-            });
-            session
-              .getEvents()
-              .pipeThrough(bufferUpdates({ maxDelay: this.updateBufferDelay }))
-              .pipeTo(sink);
-            session.push(e);
-            break;
-          default:
-            session?.push(e);
-            break;
+        if (e.event === "init") {
+          session?.close();
+          session = new Session({
+            doc: this.doc,
+            awareness: this.awareness,
+            id: e.session,
+          });
+          const sink = sseSink({
+            docId: this.docId,
+            pathPrefix: this.pathPrefix,
+            sessionId: e.session,
+            retryOptions: this.retryOptions,
+            statusStream: new WritableStream({
+              write(status) {
+                self.updateStatus = status;
+              },
+            }),
+            requestTimeout: this.requestTimeout,
+          });
+          session.getClientEvents({ delay: this.updateBufferDelay }).pipeTo(sink);
         }
+        session?.apply(e);
       }
     } catch (e) {
       // restart the session when it breaks:

@@ -27,36 +27,20 @@ describe("Yjs doc sync", () => {
 
   async function start() {
     for await (const e of serverSession.getEvents()) {
-      switch (e.event) {
-        case "init":
-          clientSession = new Session({
-            id: e.payload.session,
-            doc: clientDoc,
-          });
-          handleClientEvents();
-          clientSession.push(e);
-          break;
-        default:
-          clientSession.push(e);
-          break;
+      if (e.event === "init") {
+        clientSession = new Session({
+          id: e.session,
+          doc: clientDoc,
+        });
+        handleClientEvents();
       }
+      clientSession.apply(e);
     }
   }
 
   async function handleClientEvents() {
-    for await (const e of clientSession
-      .getEvents()
-      .pipeThrough(bufferUpdates({ maxDelay: 1, maxCount: 1000 }))) {
-      switch (e.event) {
-        case "update":
-          sharedDoc.apply(e, clientSession.id);
-          break;
-        case "awareness":
-        case "init":
-        case "ping":
-          // ignore
-          break;
-      }
+    for await (const e of clientSession.getClientEvents({ delay: 1 })) {
+      sharedDoc.apply(e, clientSession.id);
     }
   }
 
@@ -71,6 +55,7 @@ describe("Yjs doc sync", () => {
       clientText.insert(clientText.length, word);
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    clientSession.close();
     assert.strictEqual(clientText.toString(), serverText.toString());
   });
 });

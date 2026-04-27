@@ -1,12 +1,13 @@
 import * as Y from "yjs";
-import type { SessionEvent } from "./events.ts";
+import type { ClientEvent, SourceEvent } from "./events.ts";
 
 export function bufferUpdates({
   maxDelay: maxDelay = 1000,
   maxCount,
-}: { maxDelay?: number; maxCount?: number } = {}): TransformStream<SessionEvent, SessionEvent> {
-  let ctrl: TransformStreamDefaultController<SessionEvent>;
+}: { maxDelay?: number; maxCount?: number } = {}): TransformStream<SourceEvent, ClientEvent> {
+  let ctrl: TransformStreamDefaultController<ClientEvent>;
   let updates: Uint8Array[] = [];
+  let awareness: Uint8Array | undefined;
   let timeoutHandle: any;
   const flush = () => {
     clearTimeout(timeoutHandle);
@@ -14,11 +15,12 @@ export function bufferUpdates({
     if (!updates.length) {
       return;
     }
-    const payload = Y.mergeUpdates(updates);
-    ctrl.enqueue({ event: "update", payload });
+    const update = Y.mergeUpdates(updates);
+    ctrl.enqueue({ event: "update", update, awareness });
     updates = [];
+    awareness = undefined;
   };
-  return new TransformStream(
+  return new TransformStream<SourceEvent, ClientEvent>(
     {
       start(controller) {
         ctrl = controller;
@@ -31,13 +33,25 @@ export function bufferUpdates({
           } else if (!timeoutHandle) {
             timeoutHandle = setTimeout(flush, maxDelay);
           }
+        } else if (e.event === "awareness") {
+          awareness = e.payload;
+          if (!timeoutHandle) {
+            timeoutHandle = setTimeout(flush, maxDelay);
+          }
+        } else if (e.event === "snapshot") {
+          // snapshots invalidates pending updates:
+          clearTimeout(timeoutHandle);
+          timeoutHandle = undefined;
+          updates = [];
+          ctrl.enqueue({ event: "snapshot", snapshot: e.payload });
         } else {
-          // other events flush updates
-          flush();
-          ctrl.enqueue(e);
+          // ignore
         }
       },
-      flush,
+      flush() {
+        flush();
+        ctrl.terminate();
+      },
     },
     new CountQueuingStrategy({ highWaterMark: Infinity }),
   );

@@ -1,16 +1,10 @@
-import type { SessionEvent, UpdateStatus } from "./events.ts";
-import { fromBase64, RetryOptions, retryWithBackoff } from "./utils.ts";
+import type { SourceEvent, ClientEvent, UpdateStatus } from "./events.ts";
+import { fromBase64, toBase64, RetryOptions, retryWithBackoff } from "./utils.ts";
 
-export function responseFromEvents(events: ReadableStream<SessionEvent>): Response {
+export function responseFromEvents(events: ReadableStream<SourceEvent>): Response {
   const abort = new AbortController();
-  const encode = (e: SessionEvent) => {
-    const data =
-      "payload" in e
-        ? ArrayBuffer.isView(e.payload)
-          ? // TODO: replace with isomorphic:
-            Buffer.from(e.payload).toString("base64")
-          : JSON.stringify(e.payload)
-        : "";
+  const encode = (e: SourceEvent) => {
+    const data = "payload" in e ? toBase64(e.payload) : e.event === "init" ? e.session : "";
     const encoder = new TextEncoder();
     return encoder.encode(`event: ${e.event}\ndata: ${data}\n\n`);
   };
@@ -40,8 +34,6 @@ export function responseFromEvents(events: ReadableStream<SessionEvent>): Respon
   );
 }
 
-type InitPayload = Extract<SessionEvent, { event: "init" }>["payload"];
-
 export function sseSource({
   docId,
   pathPrefix,
@@ -52,13 +44,13 @@ export function sseSource({
   pathPrefix: string;
   retryOptions?: RetryOptions;
   statusStream?: WritableStream<UpdateStatus>;
-}): ReadableStream<SessionEvent> {
+}): ReadableStream<SourceEvent> {
   const abort = new AbortController();
   const signal = retryOptions?.signal
     ? AbortSignal.any([retryOptions.signal, abort.signal])
     : abort.signal;
   const statusWriter = statusStream?.getWriter();
-  let ctrl: ReadableStreamDefaultController<SessionEvent>;
+  let ctrl: ReadableStreamDefaultController<SourceEvent>;
   let source: EventSource | undefined;
   const connectSource = () =>
     new Promise<EventSource>((resolve, reject) => {
@@ -67,8 +59,11 @@ export function sseSource({
       statusWriter?.write("pending");
       const es = new EventSource(docPath);
       es.addEventListener("init", (e) => {
-        const payload = JSON.parse(e.data) as InitPayload;
-        ctrl.enqueue({ event: "init", payload });
+        ctrl.enqueue({ event: "init", session: e.data as string });
+      });
+      es.addEventListener("snapshot", (e) => {
+        const payload = fromBase64(e.data);
+        ctrl.enqueue({ event: "snapshot", payload });
       });
       es.addEventListener("update", (e) => {
         const payload = fromBase64(e.data);
@@ -136,37 +131,42 @@ export function sseSink({
   statusStream?: WritableStream<UpdateStatus>;
   requestTimeout?: number;
   retryOptions?: RetryOptions;
-}): WritableStream<SessionEvent> {
+}): WritableStream<ClientEvent> {
   const statusWriter = statusStream?.getWriter();
   statusWriter?.write("idle");
-  return new WritableStream(
+  return new WritableStream<ClientEvent>(
     {
       async write(e, controller) {
         statusWriter?.write("pending");
-        const params = new URLSearchParams({
-          session: sessionId,
-          event: e.event,
-        });
-        const path = `${pathPrefix}/${docId}?${params.toString()}`;
-        const body =
-          "payload" in e
-            ? ArrayBuffer.isView(e.payload)
-              ? (e.payload as BodyInit)
-              : JSON.stringify(e.payload)
-            : null;
+        const data = new FormData();
+        data.set("session", sessionId);
+        data.set("event", e.event);
+        if (e.event === "snapshot") {
+          data.append(
+            "snapshot",
+            new Blob([e.snapshot as BufferSource], { type: "application/octet-stream" }),
+          );
+        } else if (e.event === "update") {
+          if (e.update) {
+            data.append(
+              "update",
+              new Blob([e.update as BufferSource], { type: "application/octet-stream" }),
+            );
+          }
+          if (e.awareness) {
+            data.append(
+              "awareness",
+              new Blob([e.awareness as BufferSource], { type: "application/octet-stream" }),
+            );
+          }
+        }
+        const path = `${pathPrefix}/${docId}`;
         try {
           await retryWithBackoff(
             async () => {
               await fetch(path, {
                 method: "POST",
-                body,
-                headers: {
-                  ...(body
-                    ? ArrayBuffer.isView(body)
-                      ? { "Content-Type": "application/octet-stream" }
-                      : { "Content-Type": "application/json" }
-                    : {}),
-                },
+                body: data,
                 signal: requestTimeout
                   ? AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout)])
                   : controller.signal,
@@ -187,4 +187,72 @@ export function sseSink({
     },
     new CountQueuingStrategy({ highWaterMark: 1 }),
   );
+}
+
+export type SseRequest =
+  | { method: "GET"; docId: string }
+  | { method: "POST"; docId: string; session: string; event: ClientEvent };
+
+export async function parseRequest(
+  req: Request,
+  { pathPrefix }: { pathPrefix: string },
+): Promise<SseRequest> {
+  const pattern = new URLPattern({
+    pathname: `${pathPrefix}/:id?`,
+  });
+  const match = pattern.exec(req.url);
+  const docId = match?.pathname.groups.id;
+  if (!docId) {
+    throw new Error("Request path must contain document ID");
+  }
+
+  if (req.method === "GET") {
+    return { method: "GET", docId };
+  } else if (req.method === "POST") {
+    const data = await req.formData();
+    const event = data.get("event")?.toString();
+    if (!event) {
+      throw new Error("Request data must contain event field");
+    }
+
+    const session = data.get("session")?.toString();
+    if (!session) {
+      throw new Error("Request data must contain session field");
+    }
+
+    if (event === "update") {
+      return {
+        method: "POST",
+        docId,
+        session,
+        event: {
+          event,
+          update: data.has("update") ? await readBytesFromBlob(data, "update") : undefined,
+          awareness: data.has("awareness") ? await readBytesFromBlob(data, "awareness") : undefined,
+        },
+      };
+    } else if (event === "snapshot") {
+      return {
+        method: "POST",
+        docId,
+        session,
+        event: {
+          event,
+          snapshot: await readBytesFromBlob(data, "snapshot"),
+        },
+      };
+    } else {
+      throw new Error("Invalid event type");
+    }
+  } else {
+    throw new Error("Method not supported");
+  }
+}
+
+async function readBytesFromBlob(form: FormData, name: string): Promise<Uint8Array> {
+  const value = form.get(name);
+  if (!value || !(value instanceof Blob)) {
+    throw new Error(`Form value ${name} is not a Blob`);
+  }
+  return await value.bytes();
 }
