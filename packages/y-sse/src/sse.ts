@@ -164,13 +164,16 @@ export function sseSink({
         try {
           await retryWithBackoff(
             async () => {
-              await fetch(path, {
+              const response = await fetch(path, {
                 method: "POST",
                 body: data,
                 signal: requestTimeout
                   ? AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout)])
                   : controller.signal,
               });
+              if (!response.ok) {
+                throw new Error(`Yjs update failed: ${response.status} ${response.statusText}`);
+              }
             },
             {
               ...retryOptions,
